@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
     <div class="app-wrapper">
@@ -52,7 +52,7 @@
         <div class="controls-container">
             <div class="status-indicator">
                 <div class="pulse-dot" id="pulse-dot"></div>
-                <span class="status-text" id="status-text">Ready. Click any word.</span>
+                <span class="status-text" id="status-text">Click any word for definition and reading.</span>
             </div>
             <div class="controls">
                 <button id="btn-speed" class="btn secondary speed-btn">0.8x</button>
@@ -68,40 +68,51 @@
         </div>
     </div>
 
-    <!-- Tooltip Menu -->
-    <div id="action-tooltip" class="action-tooltip hidden glass">
-        <button class="tooltip-btn" data-action="translate">
-            <span class="tooltip-icon" style="background:#FFF3E0; color:#E67E22">译</span> <span>Translate</span>
-        </button>
-        <button class="tooltip-btn" data-action="word">
-            <span class="tooltip-icon">W</span> <span>Word</span>
-        </button>
-        <button class="tooltip-btn" data-action="sentence">
-            <span class="tooltip-icon">S</span> <span>Sentence</span>
-        </button>
-        <button class="tooltip-btn" data-action="paragraph">
-            <span class="tooltip-icon">P</span> <span>Paragraph</span>
-        </button>
-    </div>
 
-    <!-- Translation Bottom Sheet (Mobile Friendly) -->
-    <div id="translation-modal" class="translation-modal">
-        <div class="translation-overlay" id="trans-overlay"></div>
-        <div class="translation-content">
+    <!-- Dictionary Bottom Sheet (Mobile Friendly) -->
+    <div id="dict-modal" class="dict-modal">
+        <div class="dict-overlay" id="dict-overlay"></div>
+        <div class="dict-content">
             <div class="drag-handle"></div>
-            <div class="translation-header">
-                <h2 id="trans-word">Word</h2>
-                <button class="trans-close-btn" id="trans-close-btn">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <div class="dict-header">
+                <div class="dict-header-left">
+                    <h2 id="dict-word">Word</h2>
+                    <span id="dict-phonetic" class="dict-phonetic"></span>
+                </div>
+                <div class="dict-header-right">
+                    <button class="dict-pronounce-btn" id="dict-pronounce-btn" title="Pronounce">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                    </button>
+                    <button class="dict-close-btn" id="dict-close-btn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+            </div>
+            <!-- TTS Action Bar -->
+            <div class="dict-tts-bar" id="dict-tts-bar">
+                <button class="dict-tts-btn" data-action="word" id="dict-btn-word">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                    Read Word
+                </button>
+                <button class="dict-tts-btn" data-action="sentence" id="dict-btn-sentence">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg>
+                    Read Sentence
+                </button>
+                <button class="dict-tts-btn" data-action="paragraph" id="dict-btn-paragraph">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
+                    Read Paragraph
                 </button>
             </div>
-            <div class="translation-body">
-                <div id="trans-result" class="trans-result">Loading...</div>
+            <div class="dict-body" id="dict-body">
+                <div class="dict-loading" id="dict-loading">
+                    <div class="dict-spinner"></div>
+                    <span>Looking up word...</span>
+                </div>
             </div>
         </div>
     </div>
 
     <script src="book_data.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=3"></script>
 </body>
 </html>

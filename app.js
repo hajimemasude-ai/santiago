@@ -6,7 +6,8 @@ const appState = {
     speechRate: 0.8,
     wordsMap: new Map(),
     playingContext: null,
-    paragraphQueue: []  // Sentence queue for paragraph mode (mobile TTS length limit workaround)
+    paragraphQueue: [],  // Sentence queue for paragraph mode (mobile TTS length limit workaround)
+    dictCache: new Map() // Cache dictionary results
 };
 
 // Initialize App
@@ -90,7 +91,8 @@ function initApp() {
                     sObj.words.push(wObj);
                     sNode.appendChild(wNode);
                     
-                    wNode.addEventListener('click', (e) => showTooltip(e, wObj.id));
+                    // Click => open dictionary, long press => TTS tooltip
+                    setupWordInteraction(wNode, wObj.id);
                     
                     globalWordId++;
                 } else {
@@ -123,6 +125,14 @@ function initApp() {
     speechSynthesis.getVoices();
 }
 
+// Setup word click to open dictionary
+function setupWordInteraction(wNode, wordId) {
+    wNode.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDictionary(wordId);
+    });
+}
+
 // Build Chapter Navigation
 function buildChapterNav(chapterMap) {
     const list = document.getElementById('chapter-list');
@@ -148,52 +158,249 @@ function buildChapterNav(chapterMap) {
     });
 }
 
-// Tooltip Management
-let activeTooltipWordId = null;
+// ==========================================
+// Dictionary Panel Logic
+// ==========================================
 
-function showTooltip(e, wordId) {
-    e.stopPropagation();
-    activeTooltipWordId = wordId;
-    const tooltip = document.getElementById('action-tooltip');
+function openDictionary(wordId) {
+    const wObj = appState.wordsMap.get(wordId);
+    if (!wObj) return;
     
-    // Visual feedback for clicked word
-    document.querySelectorAll('.word').forEach(w => w.style.boxShadow = 'none');
-    e.target.style.boxShadow = '0 2px 4px rgba(230, 126, 34, 0.3)';
+    const cleanWord = wObj.text.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
+    if (!cleanWord) return;
     
-    tooltip.classList.add('visible');
+    const dictModal = document.getElementById('dict-modal');
+    const dictWord = document.getElementById('dict-word');
+    const dictPhonetic = document.getElementById('dict-phonetic');
+    const dictBody = document.getElementById('dict-body');
     
-    const rect = e.target.getBoundingClientRect();
-    const tooltipWidth = tooltip.offsetWidth || 150;
-    const tooltipHeight = tooltip.offsetHeight || 120;
+    // Set word title
+    dictWord.textContent = cleanWord;
+    dictPhonetic.textContent = '';
     
-    // Add window.scrollX/Y to convert viewport rect to absolute document position
-    let left = rect.left + window.scrollX + rect.width / 2 - tooltipWidth / 2;
-    let top = rect.top + window.scrollY - tooltipHeight - 10;
+    // Store current word for pronunciation
+    dictModal.dataset.currentWord = cleanWord;
+    dictModal.dataset.currentWordId = wordId;
     
-    // Check viewport boundary for flip (using rect instead of absolute top)
-    if (rect.top < tooltipHeight + 20) {
-       top = rect.bottom + window.scrollY + 10;
-       tooltip.classList.add('below');
-    } else {
-       tooltip.classList.remove('below');
-    }
+    // Show loading
+    dictBody.innerHTML = `
+        <div class="dict-loading">
+            <div class="dict-spinner"></div>
+            <span>Looking up "${cleanWord}"...</span>
+        </div>
+    `;
     
-    if (left < 10) left = 10;
-    if (left + tooltipWidth > window.innerWidth - 10) left = window.innerWidth - tooltipWidth - 10;
+    // Show modal
+    dictModal.classList.add('visible');
     
-    tooltip.style.left = left + 'px';
-    tooltip.style.top = top + 'px';
+    // Fetch data
+    fetchDictionaryData(cleanWord, wObj);
 }
 
-function hideTooltip() {
-    const tooltip = document.getElementById('action-tooltip');
-    tooltip.classList.remove('visible');
-    if (activeTooltipWordId !== null) {
-        const wObj = appState.wordsMap.get(activeTooltipWordId);
-        if (wObj && !wObj.node.classList.contains('currently-reading')) {
-            wObj.node.style.boxShadow = 'none';
+function openDictionaryByWord(word) {
+    // For clicking synonym chips - look up a new word without a wordId context
+    const cleanWord = word.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
+    if (!cleanWord) return;
+    
+    const dictModal = document.getElementById('dict-modal');
+    const dictWord = document.getElementById('dict-word');
+    const dictPhonetic = document.getElementById('dict-phonetic');
+    const dictBody = document.getElementById('dict-body');
+    
+    dictWord.textContent = cleanWord;
+    dictPhonetic.textContent = '';
+    dictModal.dataset.currentWord = cleanWord;
+    dictModal.dataset.currentWordId = '';
+    
+    dictBody.innerHTML = `
+        <div class="dict-loading">
+            <div class="dict-spinner"></div>
+            <span>Looking up "${cleanWord}"...</span>
+        </div>
+    `;
+    
+    dictModal.classList.add('visible');
+    fetchDictionaryData(cleanWord, null);
+}
+
+async function fetchDictionaryData(word, wObj) {
+    const dictBody = document.getElementById('dict-body');
+    const dictPhonetic = document.getElementById('dict-phonetic');
+    
+    // Check cache
+    const cacheKey = word.toLowerCase();
+    
+    // Parallel fetch: dictionary API + translation
+    const dictPromise = appState.dictCache.has(cacheKey) 
+        ? Promise.resolve(appState.dictCache.get(cacheKey))
+        : fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`)
+            .then(r => {
+                if (!r.ok) throw new Error('Not found');
+                return r.json();
+            })
+            .then(data => {
+                appState.dictCache.set(cacheKey, data);
+                return data;
+            })
+            .catch(err => null);
+    
+    const transPromise = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(word)}`)
+        .then(r => r.json())
+        .then(data => data[0][0][0])
+        .catch(() => null);
+    
+    const [dictData, chineseTranslation] = await Promise.all([dictPromise, transPromise]);
+    
+    // Build result HTML
+    let html = '';
+    
+    // 1. Chinese Translation Section (always show first)
+    if (chineseTranslation) {
+        html += `
+            <div class="dict-chinese-section">
+                <div class="dict-chinese-label">中文释义</div>
+                <div class="dict-chinese-text">${escapeHtml(chineseTranslation)}</div>
+            </div>
+        `;
+    }
+    
+    // 2. Sentence Context (from the book)
+    if (wObj) {
+        const pObj = appState.paragraphs[wObj.pIndex];
+        if (pObj) {
+            const sObj = pObj.sentences[wObj.sIndex];
+            if (sObj) {
+                // Highlight the word in the sentence
+                const sentenceText = sObj.text.trim();
+                const escapedWord = wObj.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const highlighted = sentenceText.replace(
+                    new RegExp(`\\b${escapedWord}\\b`, 'i'),
+                    `<mark>$&</mark>`
+                );
+                html += `
+                    <div class="dict-context-section">
+                        <div class="dict-context-label">📖 Sentence Context</div>
+                        <div class="dict-context-text">${highlighted}</div>
+                    </div>
+                `;
+            }
         }
     }
+    
+    // 3. Dictionary definitions
+    if (dictData && Array.isArray(dictData) && dictData.length > 0) {
+        const entry = dictData[0];
+        
+        // Phonetics
+        if (entry.phonetics && entry.phonetics.length > 0) {
+            const phonetic = entry.phonetics.find(p => p.text) || entry.phonetics[0];
+            if (phonetic && phonetic.text) {
+                dictPhonetic.textContent = phonetic.text;
+            }
+            // Store audio URL if available
+            const audioPhonetic = entry.phonetics.find(p => p.audio && p.audio.length > 0);
+            if (audioPhonetic) {
+                document.getElementById('dict-modal').dataset.audioUrl = audioPhonetic.audio;
+            } else {
+                document.getElementById('dict-modal').dataset.audioUrl = '';
+            }
+        }
+        
+        // Phonetic from top level
+        if (!dictPhonetic.textContent && entry.phonetic) {
+            dictPhonetic.textContent = entry.phonetic;
+        }
+        
+        // Meanings / Parts of speech
+        if (entry.meanings && entry.meanings.length > 0) {
+            entry.meanings.forEach(meaning => {
+                html += `<div class="dict-pos-section">`;
+                html += `<div class="dict-pos-badge">${escapeHtml(meaning.partOfSpeech)}</div>`;
+                
+                // Definitions
+                html += `<div class="dict-definition-list">`;
+                const defs = meaning.definitions.slice(0, 5); // Show up to 5 definitions
+                defs.forEach((def, idx) => {
+                    html += `
+                        <div class="dict-definition-item">
+                            <div class="dict-def-number">${idx + 1}</div>
+                            <div class="dict-def-content">
+                                <div class="dict-def-text">${escapeHtml(def.definition)}</div>
+                                ${def.example ? `<div class="dict-example">"${escapeHtml(def.example)}"</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+                
+                // Synonyms
+                if (meaning.synonyms && meaning.synonyms.length > 0) {
+                    html += `
+                        <div class="dict-synonyms-section">
+                            <div class="dict-synonyms-label">Synonyms</div>
+                            <div class="dict-synonym-chips">
+                                ${meaning.synonyms.slice(0, 8).map(s => 
+                                    `<span class="dict-synonym-chip" onclick="openDictionaryByWord('${escapeHtml(s)}')">${escapeHtml(s)}</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Antonyms
+                if (meaning.antonyms && meaning.antonyms.length > 0) {
+                    html += `
+                        <div class="dict-antonyms-section">
+                            <div class="dict-antonyms-label">Antonyms</div>
+                            <div class="dict-antonym-chips">
+                                ${meaning.antonyms.slice(0, 8).map(a => 
+                                    `<span class="dict-antonym-chip" onclick="openDictionaryByWord('${escapeHtml(a)}')">${escapeHtml(a)}</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            });
+        }
+        
+        // Source
+        if (entry.sourceUrls && entry.sourceUrls.length > 0) {
+            html += `
+                <div class="dict-source">
+                    Source: <a href="${entry.sourceUrls[0]}" target="_blank" rel="noopener">${entry.sourceUrls[0]}</a>
+                </div>
+            `;
+        }
+    } else if (!chineseTranslation) {
+        // No data at all
+        html = `
+            <div class="dict-error">
+                <div class="dict-error-icon">📚</div>
+                <div class="dict-error-text">No definition found for "<strong>${escapeHtml(word)}</strong>"</div>
+                <div class="dict-error-hint">This might be a proper noun or a specialized term.</div>
+            </div>
+        `;
+    } else if (!dictData) {
+        // Have translation but no English definition
+        html += `
+            <div class="dict-error" style="padding: 16px 0;">
+                <div class="dict-error-hint">English definitions unavailable for this word. Showing Chinese translation only.</div>
+            </div>
+        `;
+    }
+    
+    dictBody.innerHTML = html;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function closeDictionary() {
+    document.getElementById('dict-modal').classList.remove('visible');
 }
 
 function setupEventListeners() {
@@ -213,9 +420,6 @@ function setupEventListeners() {
     document.addEventListener('click', (e) => {
         if (!e.target.closest('#chapter-panel') && !e.target.closest('#btn-chapters')) {
             chapterPanel.classList.remove('visible');
-        }
-        if (!e.target.closest('#action-tooltip')) {
-            hideTooltip();
         }
         // Handle closing search dropdown
         if (!e.target.closest('.search-wrapper')) {
@@ -304,63 +508,64 @@ function setupEventListeners() {
         }
     });
 
-    document.querySelectorAll('.tooltip-btn').forEach(btn => {
+    // Dictionary TTS action buttons
+    document.querySelectorAll('.dict-tts-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const action = e.currentTarget.dataset.action;
-            if (activeTooltipWordId !== null) {
-                if (action === 'translate') {
-                    translateWord(activeTooltipWordId);
-                } else {
-                    playText(action, activeTooltipWordId);
-                }
-                hideTooltip();
+            const dictModal = document.getElementById('dict-modal');
+            const wordId = parseInt(dictModal.dataset.currentWordId);
+            if (!isNaN(wordId)) {
+                closeDictionary();
+                playText(action, wordId);
             }
         });
     });
 
-    // Translation Modal Handlers
-    const transModal = document.getElementById('translation-modal');
-    const transOverlay = document.getElementById('trans-overlay');
-    const transClose = document.getElementById('trans-close-btn');
+    // Dictionary Modal Handlers
+    const dictModal = document.getElementById('dict-modal');
+    const dictOverlay = document.getElementById('dict-overlay');
+    const dictCloseBtn = document.getElementById('dict-close-btn');
+    const dictPronounceBtn = document.getElementById('dict-pronounce-btn');
 
-    function closeTranslation() {
-        transModal.classList.remove('visible');
+    dictCloseBtn.addEventListener('click', closeDictionary);
+    dictOverlay.addEventListener('click', closeDictionary);
+    
+    // Pronounce button
+    dictPronounceBtn.addEventListener('click', () => {
+        const word = dictModal.dataset.currentWord;
+        if (!word) return;
+        
+        // Try phonetic audio from API first
+        const audioUrl = dictModal.dataset.audioUrl;
+        if (audioUrl) {
+            const audio = new Audio(audioUrl);
+            audio.play().catch(() => {
+                // Fallback to Youdao
+                playWordAudio(word);
+            });
+        } else {
+            playWordAudio(word);
+        }
+    });
+    
+    function playWordAudio(word) {
+        const url = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(word)}&type=2`;
+        const audio = new Audio(url);
+        audio.play().catch(() => {
+            // Final fallback to TTS
+            const u = new SpeechSynthesisUtterance(word);
+            u.lang = 'en-US';
+            u.rate = 0.8;
+            const voice = getBestVoice();
+            if (voice) u.voice = voice;
+            speechSynthesis.speak(u);
+        });
     }
-
-    transClose.addEventListener('click', closeTranslation);
-    transOverlay.addEventListener('click', closeTranslation);
 
     // Esc to close
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeTranslation();
+        if (e.key === 'Escape') closeDictionary();
     });
-
-    async function translateWord(wordId) {
-        const wObj = appState.wordsMap.get(wordId);
-        if (!wObj) return;
-        
-        // Clean word for translation (remove punctuation attached to text if any, though our parse split it)
-        const cleanWord = wObj.text.replace(/[^a-zA-Z0-9'-]/g, '');
-        
-        document.getElementById('trans-word').textContent = cleanWord;
-        const transResult = document.getElementById('trans-result');
-        transResult.innerHTML = '<span style="color:#95A5A6; font-size:1rem;">Translating...</span>';
-        
-        transModal.classList.add('visible');
-        
-        try {
-            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=${encodeURIComponent(cleanWord)}`;
-            const res = await fetch(url);
-            if (!res.ok) throw new Error('Network response was not ok');
-            const data = await res.json();
-            
-            const translatedText = data[0][0][0];
-            transResult.innerHTML = `<strong>${translatedText}</strong>`;
-        } catch(err) {
-            console.error('Translation error:', err);
-            transResult.innerHTML = '<span style="color:#E74C3C; font-size:1rem;">Failed to fetch translation. Please check connection.</span>';
-        }
-    }
 
     // Speed Control Toggle
     const btnSpeed = document.getElementById('btn-speed');
@@ -419,13 +624,22 @@ function getBestVoice() {
     const enVoices = voices.filter(v => v.lang.startsWith('en'));
     if (!enVoices.length) return voices[0];
 
-    // Priority: Google local high quality voice first, then online voices
-    let best = enVoices.find(v => v.name.includes('Google') && v.localService); 
-    if (!best) best = enVoices.find(v => (v.name.includes('Online') || v.name.includes('Neural')) && v.name.includes('Natural'));
-    if (!best) best = enVoices.find(v => v.name.includes('Neural'));
-    if (!best) best = enVoices.find(v => v.name.includes('Google'));
-    if (!best) best = enVoices.find(v => v.name.includes('Premium') || v.name.includes('Aria') || v.name.includes('Guy') || v.name.includes('Zira'));
+    // Priority 1: High-quality Natural/Neural voices (Highest Priority for human-like reading)
+    let best = enVoices.find(v => v.name.includes('Natural') || v.name.includes('Neural'));
     
+    // Priority 2: Google Online voices (usually high quality)
+    if (!best) best = enVoices.find(v => v.name.includes('Google') && !v.localService);
+    
+    // Priority 3: Online voices that aren't local (often higher quality)
+    if (!best) best = enVoices.find(v => !v.localService);
+    
+    // Priority 4: Microsoft local voices (reliable but potentially more robotic)
+    if (!best) best = enVoices.find(v => v.localService && v.name.includes('Microsoft'));
+    
+    // Priority 5: Any other local voice
+    if (!best) best = enVoices.find(v => v.localService);
+    
+    if (best) console.log(`[TTS] Selected voice: ${best.name} (Local: ${best.localService})`);
     return best || enVoices[0];
 }
 
@@ -477,24 +691,32 @@ function playText(mode, wordId) {
         return; // Skip standard synthesis
     } else if (mode === 'sentence') {
         const sObj = appState.paragraphs[wObj.pIndex].sentences[wObj.sIndex];
-        textToRead = sObj.text;
-        wordsToTrack = sObj.words;
-        offsetAdjustment = 0;
+        // Start reading from the clicked word
+        textToRead = sObj.text.substring(wObj.sStartOffset);
+        wordsToTrack = sObj.words.filter(w => w.id >= wordId);
+        offsetAdjustment = wObj.sStartOffset;
         offsetKeyStart = 'sStartOffset';
         fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode);
     } else if (mode === 'paragraph') {
         const pObj = appState.paragraphs[wObj.pIndex];
         if (!pObj) return;
 
-        // Build a queue of sentences from the clicked word's sentence onward.
-        // This avoids mobile SpeechSynthesis failures on long paragraph text.
         appState.paragraphQueue = [];
         pObj.sentences.forEach((s, sIdx) => {
             if (sIdx < wObj.sIndex) return;
-            const words = sIdx === wObj.sIndex
-                ? s.words.filter(w => w.id >= wordId)
-                : s.words;
-            appState.paragraphQueue.push({ text: s.text, words });
+            
+            let text = s.text;
+            let words = s.words;
+            let offsetAdj = 0;
+
+            if (sIdx === wObj.sIndex) {
+                // First sentence: slice to start from word
+                text = s.text.substring(wObj.sStartOffset);
+                words = s.words.filter(w => w.id >= wordId);
+                offsetAdj = wObj.sStartOffset;
+            }
+
+            appState.paragraphQueue.push({ text, words, offsetAdjustment: offsetAdj });
         });
 
         if (appState.paragraphQueue.length === 0) return;
@@ -513,12 +735,12 @@ function advanceParagraphQueue() {
         return;
     }
 
-    const { text, words } = appState.paragraphQueue.shift();
+    const { text, words, offsetAdjustment } = appState.paragraphQueue.shift();
 
     appState.playingContext = {
         mode: 'paragraph',
         words: words,
-        offsetAdjustment: 0,
+        offsetAdjustment: offsetAdjustment,
         offsetKeyStart: 'sStartOffset',
         currentWordId: null,
         totalChars: text.length
@@ -536,7 +758,10 @@ function advanceParagraphQueue() {
     }
 
     utterance.onboundary = (e) => {
-        if (e.name === 'word') highlightWordByIndex(e.charIndex);
+        if (e.name === 'word') {
+            const adjustedIndex = e.charIndex + appState.playingContext.offsetAdjustment;
+            highlightWordByIndex(adjustedIndex);
+        }
     };
 
     utterance.onend = () => {
@@ -667,7 +892,7 @@ function updateUIState(state, mode = '') {
         textPlayPause.textContent = 'Pause';
         iconPlayPause.innerHTML = '<rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect>';
         pulseDot.className = 'pulse-dot';
-        statusText.textContent = 'Ready to read. Click any word.';
+        statusText.textContent = 'Click any word for definition and reading.';
         appState.isPaused = false;
         appState.currentUtterance = null;
         document.getElementById('progress-bar').style.width = '0%';

@@ -1,7 +1,9 @@
 const appState = {
     paragraphs: [],
     currentUtterance: null,
+    currentAudio: null,
     isPaused: false,
+    speechRate: 0.8,
     wordsMap: new Map(),
     playingContext: null
 };
@@ -295,6 +297,19 @@ function setupEventListeners() {
         }
     }
 
+    // Speed Control Toggle
+    const btnSpeed = document.getElementById('btn-speed');
+    btnSpeed.addEventListener('click', () => {
+        if (appState.speechRate === 0.8) {
+            appState.speechRate = 1.0;
+        } else if (appState.speechRate === 1.0) {
+            appState.speechRate = 1.2;
+        } else {
+            appState.speechRate = 0.8;
+        }
+        btnSpeed.innerText = appState.speechRate.toFixed(1) + 'x';
+    });
+
     document.getElementById('btn-play-pause').addEventListener('click', () => {
         if (appState.isPaused) {
             window.speechSynthesis.resume();
@@ -307,6 +322,10 @@ function setupEventListeners() {
 
     document.getElementById('btn-stop').addEventListener('click', () => {
         window.speechSynthesis.cancel();
+        if (appState.currentAudio) {
+            appState.currentAudio.pause();
+            appState.currentAudio = null;
+        }
         clearHighlights();
         updateUIState('stopped');
     });
@@ -334,12 +353,11 @@ function getBestVoice() {
     const enVoices = voices.filter(v => v.lang.startsWith('en'));
     if (!enVoices.length) return voices[0];
 
-    // Priority: Network/Online voices first (they are human-like), then local fallback
-    let best = enVoices.find(v => !v.localService && v.name.includes('Google')); 
+    // Priority: Google local high quality voice first, then online voices
+    let best = enVoices.find(v => v.name.includes('Google') && v.localService); 
     if (!best) best = enVoices.find(v => (v.name.includes('Online') || v.name.includes('Neural')) && v.name.includes('Natural'));
     if (!best) best = enVoices.find(v => v.name.includes('Neural'));
-    if (!best) best = enVoices.find(v => v.name.includes('Google') && !v.name.includes('Auto'));
-    if (!best) best = enVoices.find(v => !v.localService); // Any network/cloud voice
+    if (!best) best = enVoices.find(v => v.name.includes('Google'));
     if (!best) best = enVoices.find(v => v.name.includes('Premium') || v.name.includes('Aria') || v.name.includes('Guy') || v.name.includes('Zira'));
     
     return best || enVoices[0];
@@ -366,16 +384,38 @@ function playText(mode, wordId) {
     let offsetKeyStart = '';
 
     if (mode === 'word') {
-        textToRead = wObj.text;
-        wordsToTrack = [wObj];
-        offsetAdjustment = 0;
-        offsetKeyStart = 'wordStart';
+        // --- USE REAL HUMAN VOICE FOR SINGLE WORDS ---
+        const cleanWord = wObj.text.replace(/[^a-zA-Z0-9'-]/g, '');
+        const audioUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(cleanWord)}&type=2`; // type=2 is US English
+        const wordAudio = new Audio(audioUrl);
+        
+        clearHighlights();
+        wObj.node.classList.add('currently-reading');
+        updateUIState('playing', 'word');
+        
+        wordAudio.onended = () => {
+            clearHighlights();
+            updateUIState('stopped');
+        };
+        
+        wordAudio.onerror = () => {
+            fallbackTTS(wObj.text, [wObj], 0, 'wordStart', mode);
+        };
+        
+        wordAudio.playbackRate = appState.speechRate;
+        wordAudio.play();
+        appState.isPaused = false;
+        
+        // Save to state so stop button works
+        appState.currentAudio = wordAudio; 
+        return; // Skip standard synthesis
     } else if (mode === 'sentence') {
         const sObj = appState.paragraphs[wObj.pIndex].sentences[wObj.sIndex];
         textToRead = sObj.text;
         wordsToTrack = sObj.words;
         offsetAdjustment = 0;
         offsetKeyStart = 'sStartOffset';
+        fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode);
     } else if (mode === 'paragraph') {
         const pObj = appState.paragraphs[wObj.pIndex];
         textToRead = pObj.text.substring(wObj.pStartOffset);
@@ -389,8 +429,11 @@ function playText(mode, wordId) {
                 }
             });
         });
+        fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode);
     }
+}
 
+function fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode) {
     const utterance = new SpeechSynthesisUtterance(textToRead);
     
     // Assign best voice
@@ -399,8 +442,8 @@ function playText(mode, wordId) {
         utterance.voice = voice;
     }
     utterance.lang = 'en-US';
-    // KEEP rate at 1.0. Lowering rate on mobile often strips neural features and reverts to a robotic legacy algorithm.
-    utterance.rate = 1.0; 
+    // Use dynamic speed rate selected by user
+    utterance.rate = appState.speechRate; 
     
     appState.playingContext = {
         mode: mode,
@@ -431,9 +474,8 @@ function playText(mode, wordId) {
         }
     };
 
-    // First word highlight immediately
     if (wordsToTrack.length > 0) {
-        highlightWordByIndex(appState.playingContext.offsetAdjustment); // Trigger first word manually it often lags
+        highlightWordByIndex(appState.playingContext.offsetAdjustment); 
     }
 
     updateUIState('playing', mode);

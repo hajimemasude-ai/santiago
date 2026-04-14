@@ -307,6 +307,15 @@ body {
     border-color: rgba(0,0,0,0.2);
 }
 
+.speed-btn {
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-family: var(--font-ui);
+    color: var(--accent-primary);
+    border: 1px solid rgba(230, 126, 34, 0.3);
+    background: #FFF9F2;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .controls-container {

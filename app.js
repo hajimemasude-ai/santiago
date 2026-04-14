@@ -18,10 +18,28 @@ function initApp() {
 
     const paras = bookContent.split(/\n+/).filter(p => p.trim() !== '');
     let globalWordId = 0;
+    const chapterMap = []; // { num, firstWordId }
     
     const fragment = document.createDocumentFragment();
 
     paras.forEach((pText, pIndex) => {
+        const trimmed = pText.trim();
+        
+        // Detect chapter markers: standalone number 1-12
+        if (/^(\d{1,2})$/.test(trimmed) && parseInt(trimmed) >= 1 && parseInt(trimmed) <= 20) {
+            const chapterNum = parseInt(trimmed);
+            // Store chapter with placeholder firstWordId; will fill after next word is parsed
+            chapterMap.push({ num: chapterNum, firstWordId: globalWordId });
+            // Render chapter heading element
+            const chNode = document.createElement('div');
+            chNode.className = 'chapter-heading';
+            chNode.id = `chapter-${chapterNum}`;
+            chNode.textContent = `Chapter ${chapterNum}`;
+            chNode.dataset.chapterNum = chapterNum;
+            fragment.appendChild(chNode);
+            return; // skip normal paragraph handling
+        }
+
         const pObj = { id: pIndex, text: pText, sentences: [], startWordId: null, endWordId: null };
         const pNode = document.createElement('p');
         pNode.className = 'paragraph';
@@ -90,6 +108,9 @@ function initApp() {
 
     container.appendChild(fragment);
 
+    // Build chapter navigation list
+    buildChapterNav(chapterMap);
+
     setupEventListeners();
     
     // Attempt to warm up voices (Mobile requires listener too)
@@ -97,6 +118,31 @@ function initApp() {
         speechSynthesis.getVoices();
     };
     speechSynthesis.getVoices();
+}
+
+// Build Chapter Navigation
+function buildChapterNav(chapterMap) {
+    const list = document.getElementById('chapter-list');
+    if (!chapterMap.length) return;
+
+    chapterMap.forEach(ch => {
+        const item = document.createElement('div');
+        item.className = 'chapter-item';
+        item.innerHTML = `<span>${ch.num}</span> Chapter ${ch.num}`;
+        item.addEventListener('click', () => {
+            // Scroll to chapter heading
+            const heading = document.getElementById(`chapter-${ch.num}`);
+            if (heading) {
+                heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Add brief flash to heading
+                heading.style.background = 'rgba(230,126,34,0.15)';
+                setTimeout(() => { heading.style.background = ''; }, 1500);
+            }
+            // Close panel
+            document.getElementById('chapter-panel').classList.remove('visible');
+        });
+        list.appendChild(item);
+    });
 }
 
 // Tooltip Management
@@ -148,7 +194,23 @@ function hideTooltip() {
 }
 
 function setupEventListeners() {
+    // Chapter FAB toggle
+    const chapterPanel = document.getElementById('chapter-panel');
+    document.getElementById('btn-chapters').addEventListener('click', (e) => {
+        e.stopPropagation();
+        chapterPanel.classList.remove('hidden');
+        // Toggle visible state
+        if (chapterPanel.classList.contains('visible')) {
+            chapterPanel.classList.remove('visible');
+        } else {
+            chapterPanel.classList.add('visible');
+        }
+    });
+
     document.addEventListener('click', (e) => {
+        if (!e.target.closest('#chapter-panel') && !e.target.closest('#btn-chapters')) {
+            chapterPanel.classList.remove('visible');
+        }
         if (!e.target.closest('#action-tooltip')) {
             hideTooltip();
         }

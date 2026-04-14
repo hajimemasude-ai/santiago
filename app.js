@@ -90,7 +90,10 @@ function initApp() {
 
     setupEventListeners();
     
-    // Attempt to warm up voices
+    // Attempt to warm up voices (Mobile requires listener too)
+    speechSynthesis.onvoiceschanged = () => {
+        speechSynthesis.getVoices();
+    };
     speechSynthesis.getVoices();
 }
 
@@ -112,11 +115,13 @@ function showTooltip(e, wordId) {
     const tooltipWidth = tooltip.offsetWidth || 150;
     const tooltipHeight = tooltip.offsetHeight || 120;
     
-    let left = rect.left + rect.width / 2 - tooltipWidth / 2;
-    let top = rect.top - tooltipHeight - 10;
+    // Add window.scrollX/Y to convert viewport rect to absolute document position
+    let left = rect.left + window.scrollX + rect.width / 2 - tooltipWidth / 2;
+    let top = rect.top + window.scrollY - tooltipHeight - 10;
     
-    if (top < 10) {
-       top = rect.bottom + 10;
+    // Check viewport boundary for flip (using rect instead of absolute top)
+    if (rect.top < tooltipHeight + 20) {
+       top = rect.bottom + window.scrollY + 10;
        tooltip.classList.add('below');
     } else {
        tooltip.classList.remove('below');
@@ -326,18 +331,16 @@ function getBestVoice() {
     const voices = speechSynthesis.getVoices();
     if (!voices.length) return null;
 
-    // Prefer English voices
     const enVoices = voices.filter(v => v.lang.startsWith('en'));
     if (!enVoices.length) return voices[0];
 
-    // Priority: Online/Neural > Google > Premium > High Quality default > Standard
-    let best = enVoices.find(v => (v.name.includes('Online') || v.name.includes('Neural')) && v.name.includes('Natural'));
+    // Priority: Network/Online voices first (they are human-like), then local fallback
+    let best = enVoices.find(v => !v.localService && v.name.includes('Google')); 
+    if (!best) best = enVoices.find(v => (v.name.includes('Online') || v.name.includes('Neural')) && v.name.includes('Natural'));
     if (!best) best = enVoices.find(v => v.name.includes('Neural'));
     if (!best) best = enVoices.find(v => v.name.includes('Google') && !v.name.includes('Auto'));
-    if (!best) best = enVoices.find(v => v.name.includes('Premium'));
-    if (!best) best = enVoices.find(v => v.name.includes('Aria'));
-    if (!best) best = enVoices.find(v => v.name.includes('Guy'));
-    if (!best) best = enVoices.find(v => v.name.includes('Zira')); // Windows default high quality
+    if (!best) best = enVoices.find(v => !v.localService); // Any network/cloud voice
+    if (!best) best = enVoices.find(v => v.name.includes('Premium') || v.name.includes('Aria') || v.name.includes('Guy') || v.name.includes('Zira'));
     
     return best || enVoices[0];
 }
@@ -396,7 +399,8 @@ function playText(mode, wordId) {
         utterance.voice = voice;
     }
     utterance.lang = 'en-US';
-    utterance.rate = 0.9;
+    // KEEP rate at 1.0. Lowering rate on mobile often strips neural features and reverts to a robotic legacy algorithm.
+    utterance.rate = 1.0; 
     
     appState.playingContext = {
         mode: mode,

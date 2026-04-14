@@ -535,22 +535,14 @@ function setupEventListeners() {
         const word = dictModal.dataset.currentWord;
         if (!word) return;
         
-        // Try phonetic audio from API first
-        const audioUrl = dictModal.dataset.audioUrl;
-        if (audioUrl) {
-            const audio = new Audio(audioUrl);
-            audio.play().catch(() => {
-                // Fallback to Youdao
-                playWordAudio(word);
-            });
-        } else {
-            playWordAudio(word);
-        }
+        // Use the same reliable source as "Read Word" to ensure correct pronunciation
+        playWordAudio(word);
     });
     
     function playWordAudio(word) {
         const url = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(word)}&type=2`;
         const audio = new Audio(url);
+        audio.playbackRate = appState.speechRate;
         audio.play().catch(() => {
             // Final fallback to TTS
             const u = new SpeechSynthesisUtterance(word);

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#E67E22">
+    <link rel="manifest" href="manifest.json">
+    <title>The Old Man and the Sea - Reading Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-wrapper">
+        <header class="app-header">
+            <div class="header-content">
+                <h1>The Old Man and the Sea</h1>
+                <p class="subtitle">Interactive Reading Assistant</p>
+                
+                <!-- Search Component -->
+                <div class="search-wrapper">
+                    <input type="text" id="search-input" placeholder="Search text to jump to..." autocomplete="off">
+                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <div id="search-results" class="search-results glass hidden"></div>
+                </div>
+            </div>
+        </header>
+
+        <main class="reading-container" id="reading-container">
+            <!-- Content structurally rendered via JS -->
+        </main>
+        
+        <!-- Spacing so bottom bar doesn't cover text -->
+        <div class="bottom-spacer"></div>
+    </div>
+
+    <!-- Bottom Control Bar -->
+    <div class="bottom-bar glass" id="bottom-bar">
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="controls-container">
+            <div class="status-indicator">
+                <div class="pulse-dot" id="pulse-dot"></div>
+                <span class="status-text" id="status-text">Ready to read. Click any word.</span>
+            </div>
+            <div class="controls">
+                <button id="btn-play-pause" class="btn primary" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="icon-play-pause"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                    <span id="text-play-pause">Pause</span>
+                </button>
+                <button id="btn-stop" class="btn secondary" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                    Stop
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip Menu -->
+    <div id="action-tooltip" class="action-tooltip hidden glass">
+        <button class="tooltip-btn" data-action="translate">
+            <span class="tooltip-icon" style="background:#FFF3E0; color:#E67E22">译</span> <span>Translate</span>
+        </button>
+        <button class="tooltip-btn" data-action="word">
+            <span class="tooltip-icon">W</span> <span>Word</span>
+        </button>
+        <button class="tooltip-btn" data-action="sentence">
+            <span class="tooltip-icon">S</span> <span>Sentence</span>
+        </button>
+        <button class="tooltip-btn" data-action="paragraph">
+            <span class="tooltip-icon">P</span> <span>Paragraph</span>
+        </button>
+    </div>
+
+    <!-- Translation Bottom Sheet (Mobile Friendly) -->
+    <div id="translation-modal" class="translation-modal">
+        <div class="translation-overlay" id="trans-overlay"></div>
+        <div class="translation-content">
+            <div class="drag-handle"></div>
+            <div class="translation-header">
+                <h2 id="trans-word">Word</h2>
+                <button class="trans-close-btn" id="trans-close-btn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="translation-body">
+                <div id="trans-result" class="trans-result">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="book_data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

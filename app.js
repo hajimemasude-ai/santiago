@@ -5,7 +5,8 @@ const appState = {
     isPaused: false,
     speechRate: 0.8,
     wordsMap: new Map(),
-    playingContext: null
+    playingContext: null,
+    paragraphQueue: []  // Sentence queue for paragraph mode (mobile TTS length limit workaround)
 };
 
 // Initialize App
@@ -18,11 +19,12 @@ function initApp() {
 
     const paras = bookContent.split(/\n+/).filter(p => p.trim() !== '');
     let globalWordId = 0;
+    let actualPIndex = 0; // Tracks real paragraph index, ignoring chapter markers
     const chapterMap = []; // { num, firstWordId }
     
     const fragment = document.createDocumentFragment();
 
-    paras.forEach((pText, pIndex) => {
+    paras.forEach((pText) => {
         const trimmed = pText.trim();
         
         // Detect chapter markers: standalone number 1-12
@@ -40,7 +42,7 @@ function initApp() {
             return; // skip normal paragraph handling
         }
 
-        const pObj = { id: pIndex, text: pText, sentences: [], startWordId: null, endWordId: null };
+        const pObj = { id: actualPIndex, text: pText, sentences: [], startWordId: null, endWordId: null };
         const pNode = document.createElement('p');
         pNode.className = 'paragraph';
         
@@ -50,7 +52,7 @@ function initApp() {
         let pCharOffset = 0;
         
         sentMatches.forEach((sText, sIndex) => {
-            const sObj = { id: sIndex, text: sText, words: [], pId: pIndex, startWordId: null, endWordId: null };
+            const sObj = { id: sIndex, text: sText, words: [], pId: actualPIndex, startWordId: null, endWordId: null };
             const sNode = document.createElement('span');
             sNode.className = 'sentence';
             
@@ -69,7 +71,7 @@ function initApp() {
                     const wObj = {
                         id: globalWordId,
                         text: token,
-                        pIndex: pIndex,
+                        pIndex: actualPIndex,
                         sIndex: sIndex,
                         sStartOffset: sCharOffset,
                         sEndOffset: sCharOffset + token.length,
@@ -104,6 +106,7 @@ function initApp() {
         
         appState.paragraphs.push(pObj);
         fragment.appendChild(pNode);
+        actualPIndex++; // Only increment for real paragraphs
     });
 
     container.appendChild(fragment);
@@ -384,6 +387,7 @@ function setupEventListeners() {
 
     document.getElementById('btn-stop').addEventListener('click', () => {
         window.speechSynthesis.cancel();
+        appState.paragraphQueue = []; // Stop any pending sentence queue
         if (appState.currentAudio) {
             appState.currentAudio.pause();
             appState.currentAudio = null;
@@ -480,19 +484,73 @@ function playText(mode, wordId) {
         fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode);
     } else if (mode === 'paragraph') {
         const pObj = appState.paragraphs[wObj.pIndex];
-        textToRead = pObj.text.substring(wObj.pStartOffset);
-        offsetAdjustment = wObj.pStartOffset;
-        offsetKeyStart = 'pStartOffset';
-        
-        pObj.sentences.forEach(s => {
-            s.words.forEach(w => {
-                if (w.id >= wordId) {
-                    wordsToTrack.push(w);
-                }
-            });
+        if (!pObj) return;
+
+        // Build a queue of sentences from the clicked word's sentence onward.
+        // This avoids mobile SpeechSynthesis failures on long paragraph text.
+        appState.paragraphQueue = [];
+        pObj.sentences.forEach((s, sIdx) => {
+            if (sIdx < wObj.sIndex) return;
+            const words = sIdx === wObj.sIndex
+                ? s.words.filter(w => w.id >= wordId)
+                : s.words;
+            appState.paragraphQueue.push({ text: s.text, words });
         });
-        fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode);
+
+        if (appState.paragraphQueue.length === 0) return;
+        updateUIState('playing', mode);
+        appState.isPaused = false;
+        advanceParagraphQueue();
+        return;
     }
+}
+
+// Speak next sentence from paragraph queue (allows long paragraphs on mobile)
+function advanceParagraphQueue() {
+    if (!appState.paragraphQueue || appState.paragraphQueue.length === 0) {
+        clearHighlights();
+        updateUIState('stopped');
+        return;
+    }
+
+    const { text, words } = appState.paragraphQueue.shift();
+
+    appState.playingContext = {
+        mode: 'paragraph',
+        words: words,
+        offsetAdjustment: 0,
+        offsetKeyStart: 'sStartOffset',
+        currentWordId: null,
+        totalChars: text.length
+    };
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = getBestVoice();
+    if (voice) utterance.voice = voice;
+    utterance.lang = 'en-US';
+    utterance.rate = appState.speechRate;
+
+    if (words.length > 0) {
+        clearHighlights();
+        words[0].node.classList.add('currently-reading');
+    }
+
+    utterance.onboundary = (e) => {
+        if (e.name === 'word') highlightWordByIndex(e.charIndex);
+    };
+
+    utterance.onend = () => {
+        if (!appState.isPaused) advanceParagraphQueue();
+    };
+
+    utterance.onerror = (e) => {
+        if (e.error !== 'canceled' && e.error !== 'interrupted') {
+            advanceParagraphQueue();
+        }
+    };
+
+    window.speechSynthesis.speak(utterance);
+    appState.currentUtterance = utterance;
 }
 
 function fallbackTTS(textToRead, wordsToTrack, offsetAdjustment, offsetKeyStart, mode) {
